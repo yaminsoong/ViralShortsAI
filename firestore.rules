@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {uid}
+    // Fields:
+    //   - uid: string (required) - The unique ID of the user
+    //   - email: string (required) - The email address of the user
+    //   - displayName: string (optional) - The display name of the user
+    //   - photoURL: string (optional) - The profile photo URL of the user
+    //   - isPaid: boolean (required) - Whether the user has a paid subscription
+    //   - createdAt: timestamp (optional) - When the user account was created
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "yaminask07@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'isPaid']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.email is string && data.email.size() > 0 &&
+             data.isPaid is bool;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      // Users can read their own profile
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // Users can create their own profile, but isPaid must be false initially unless admin
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
+                    (request.resource.data.isPaid == false || isAdmin());
+      
+      // Users can update their own profile, but cannot change isPaid status unless admin
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && 
+                    (request.resource.data.isPaid == resource.data.isPaid || isAdmin());
+      
+      // Only admins can delete users
+      allow delete: if isAdmin();
+    }
+  }
+}
